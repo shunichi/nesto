@@ -1,11 +1,15 @@
 use sdl2::event::Event;
+use sdl2::image::{InitFlag, LoadTexture};
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 
+mod debug_font;
+
 pub fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
+    let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
 
     let window = video_subsystem
         .window("rust-sdl2 demo: Video", 800, 600)
@@ -24,6 +28,9 @@ pub fn main() -> Result<(), String> {
     let mut texture = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGB24, 256, 256)
         .map_err(|e| e.to_string())?;
+    let font_texture = texture_creator.load_texture("images/charmap-oldschool_white.png")?;
+    let debug_font = debug_font::DebugFont::new(font_texture);
+
     // Create a red-green gradient
     texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
         for y in 0..256 {
@@ -67,6 +74,9 @@ pub fn main() -> Result<(), String> {
             false,
             false,
         )?;
+        // canvas.copy(&font_texture, None, Some(Rect::new(300, 100, 128, 64)))?;
+        // debug_font.copy(&mut canvas, Rect::new(300, 100, 128, 64))?;
+        debug_font.render(&mut canvas, 100, 400, 3, "Hello, World!")?;
         canvas.present();
     }
 
