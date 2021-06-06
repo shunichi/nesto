@@ -4,9 +4,13 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 
+mod cartridge;
 mod debug_font;
 
-pub fn main() -> Result<(), String> {
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+pub fn main() -> Result<()> {
+    let cart = cartridge::read(std::path::Path::new("./nestest.nes"))?;
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
     let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
