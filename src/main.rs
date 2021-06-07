@@ -1,3 +1,4 @@
+use mapper::Mapper0;
 use sdl2::event::Event;
 use sdl2::image::{InitFlag, LoadTexture};
 use sdl2::keyboard::Keycode;
@@ -5,12 +6,42 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 
 mod cartridge;
+mod cpu;
 mod debug_font;
+mod mapper;
+use mapper::Mapper;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub fn main() -> Result<()> {
+fn cpu_test() -> Result<()> {
     let cart = cartridge::read(std::path::Path::new("./nestest.nes"))?;
+    let mapper = mapper::Mapper0::new();
+    let vectors: [u16; 3] = [0xfffa, 0xfffc, 0xfffe];
+    for &addr in vectors.iter() {
+        let data = mapper.read16(&cart, addr);
+        println!("{:#x}: {:#x}", addr, data);
+    }
+    let mut cpu = cpu::Cpu::new();
+    cpu.reset(&mapper, &cart);
+    println!("inst_table_len: {:?}", cpu::Cpu::inst_table_len());
+    let mut index: usize = 0;
+    while index < 20 {
+        let byte = cart.prg[index];
+        let prop = cpu::Cpu::inst_prop(byte);
+        println!(
+            "{:#06x}: {:#04x} {:?} {:?}",
+            index,
+            byte,
+            prop.inst.name(),
+            prop.addr_mode.name()
+        );
+        index += 1 + prop.addr_mode.operand_len();
+    }
+    Ok(())
+}
+
+pub fn main() -> Result<()> {
+    cpu_test()?;
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
     let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
