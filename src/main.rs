@@ -98,7 +98,7 @@ fn cpu_test() -> Result<()> {
     disasm(&bus, 0xc000, 0x3ffa);
     println!("-----");
     cpu.pc = 0xc000;
-    for i in 0..10 {
+    for i in 0..1000 {
         cpu.clock(&mut bus);
     }
     Ok(())
