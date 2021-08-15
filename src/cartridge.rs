@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 pub struct Cartridge {
@@ -10,7 +10,10 @@ pub struct Cartridge {
 }
 
 #[derive(Debug, Clone)]
-struct CartridgeError;
+pub enum CartridgeError {
+    CantOpen,
+    Invalid,
+}
 
 impl fmt::Display for CartridgeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -19,7 +22,7 @@ impl fmt::Display for CartridgeError {
 }
 impl std::error::Error for CartridgeError {}
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = std::result::Result<T, CartridgeError>;
 
 // http://wiki.nesdev.com/w/index.php/INES
 //
@@ -36,13 +39,14 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const SIGNATURE: [u8; 4] = [78, 69, 83, 26];
 
 pub fn read(path: &Path) -> Result<Cartridge> {
-    let mut f = File::open(path)?;
+    let mut f = File::open(path).map_err(|_| CartridgeError::CantOpen)?;
     let mut header = [0; 16];
 
-    f.read_exact(&mut header)?;
+    f.read_exact(&mut header)
+        .map_err(|_| CartridgeError::Invalid)?;
 
     if header[0..4] != SIGNATURE {
-        return Err(CartridgeError.into());
+        return Err(CartridgeError::Invalid);
     }
     if (header[6] & (1u8 << 2)) != 0 {
         // trainer
@@ -53,8 +57,10 @@ pub fn read(path: &Path) -> Result<Cartridge> {
     let chr_bytes = (header[5] as usize) * 8 * 1024;
     let mut prg = vec![0u8; prg_bytes];
     let mut chr = vec![0u8; chr_bytes];
-    f.read_exact(prg.as_mut_slice())?;
-    f.read_exact(chr.as_mut_slice())?;
+    f.read_exact(prg.as_mut_slice())
+        .map_err(|_| CartridgeError::Invalid)?;
+    f.read_exact(chr.as_mut_slice())
+        .map_err(|_| CartridgeError::Invalid)?;
 
     Ok(Cartridge {
         mapper: mapper,

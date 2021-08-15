@@ -1,21 +1,11 @@
+use crate::bus::Bus;
 use crate::cartridge::Cartridge;
-use crate::mapper::Mapper;
-
-// http://wiki.nesdev.com/w/index.php/CPU_registers
-
-pub struct Cpu {
-    pub a: u8,
-    pub x: u8,
-    pub y: u8,
-    pub pc: u16,
-    pub s: u8,
-    pub p: u8,
-}
 
 macro_rules! enum_str {
   (pub enum $name:ident {
     $($variant:ident),*,
   }) => {
+    #[derive(Copy, Clone)]
     pub enum $name {
       $($variant),*
     }
@@ -423,21 +413,156 @@ const INST_PROPS: [InstProp; 256] = build_inst_table! {
   // 		$100
 };
 
+struct Flags {
+    carry: bool,
+    zero: bool,
+    intrrupt: bool,
+    decimal: bool,
+    brk: bool,
+    unused: bool,
+    overflow: bool,
+    negative: bool,
+}
+
+const FLG_C: u8 = 1;
+const FLG_Z: u8 = 1 << 1;
+const FLG_I: u8 = 1 << 2;
+const FLG_D: u8 = 1 << 3;
+const FLG_B: u8 = 1 << 4;
+const FLG_U: u8 = 1 << 5; // unused
+const FLG_V: u8 = 1 << 6;
+const FLG_N: u8 = 1 << 7;
+
+impl Flags {
+    fn new() -> Flags {
+        // 0x34
+        Flags {
+            carry: false,
+            zero: false,
+            intrrupt: true,
+            decimal: false,
+            brk: false,
+            unused: true,
+            overflow: false,
+            negative: false,
+        }
+    }
+
+    fn value(&self) -> u8 {
+        let mut v: u8 = 0;
+        if self.carry {
+            v |= FLG_C;
+        }
+        if self.zero {
+            v |= FLG_Z;
+        }
+        if self.intrrupt {
+            v |= FLG_I;
+        }
+        if self.decimal {
+            v |= FLG_D;
+        }
+        if self.brk {
+            v |= FLG_B;
+        }
+        if self.overflow {
+            v |= FLG_V;
+        }
+        if self.negative {
+            v |= FLG_N;
+        }
+        v
+    }
+}
+// http://wiki.nesdev.com/w/index.php/CPU_registers
+pub struct Cpu {
+    pub pc: u16,
+    pub s: u8,
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    flags: Flags,
+    cycles: u8,
+}
+
 // https://wiki.nesdev.com/w/index.php/CPU_power_up_state
 impl Cpu {
     pub fn new() -> Cpu {
         Cpu {
+            pc: 0,
+            s: 0xfd,
             a: 0,
             x: 0,
             y: 0,
-            pc: 0,
-            s: 0xfd,
-            p: 0x34,
+            flags: Flags::new(),
+            cycles: 0,
         }
     }
 
-    pub fn reset<M: Mapper>(&mut self, mapper: &M, cartridge: &Cartridge) {
-        self.pc = mapper.read16(cartridge, 0xfffc);
+    pub fn clock(&mut self, bus: &mut Bus) {
+        if self.cycles == 0 {
+            self.cycles = self.exec_inst(bus);
+        } else {
+            self.cycles -= 1;
+        }
+    }
+
+    pub fn carry_value(&self) -> u8 {
+        if self.flags.carry {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn set_flags(&mut self, prev_value: u8, data: u8, new_value: u16) {
+        let new_u8_value = (new_value & 0xff) as u8;
+        self.flags.carry = (new_value & 0x100) != 0;
+        self.flags.negative = (new_u8_value & 0x80) != 0;
+        self.flags.zero = new_u8_value == 0;
+        self.flags.overflow = (((prev_value ^ new_u8_value) & !(prev_value ^ data)) & 0x80) != 0;
+    }
+
+    fn exec_inst(&mut self, bus: &mut Bus) -> u8 {
+        let inst = bus.read(self.pc);
+        self.pc = ((self.pc as u32 + 1) & 0xffff) as u16;
+        let inst_prop = &INST_PROPS[inst as usize];
+        let (data, mut additional_cycle) = self.fetch_data(inst_prop, bus);
+
+        match inst_prop.inst {
+            Inst::ADC => {
+                let prev_value = self.a;
+                let new_value = self.a as u16 + data as u16 + self.carry_value() as u16;
+                self.set_flags(prev_value, data as u8, new_value);
+                self.a = (new_value & 0xff) as u8;
+            }
+            Inst::JMP => {
+                self.pc = data;
+            }
+            _ => {}
+        }
+        inst_prop.cycles + additional_cycle
+    }
+
+    fn fetch_data(&mut self, inst_prop: &InstProp, bus: &mut Bus) -> (u16, u8) {
+        match inst_prop.addr_mode {
+            AddressingMode::Impl => (0, 0),
+            AddressingMode::Imm => {
+                let data = bus.read(self.pc);
+                self.pc += 1;
+                (data as u16, 0)
+            }
+            AddressingMode::Abs => {
+                let data = bus.read16(self.pc);
+                self.pc += 2;
+                (data, 0)
+            }
+            _ => (0, 0),
+        }
+    }
+
+    pub fn reset(&mut self, bus: &Bus) {
+        self.pc = bus.read16(0xfffc);
     }
 
     pub fn inst_name(inst: Inst) -> &'static str {
