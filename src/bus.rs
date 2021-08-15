@@ -33,7 +33,25 @@ impl Bus {
     }
 
     pub fn read16(&self, addr: u16) -> u16 {
-        (self.read(((addr as u32 + 1) & 0xffff) as u16) as u16) << 8 | (self.read(addr) as u16)
+        let lo: u16 = self.read(addr) as u16;
+        let hi: u16 = self.read((addr as u32 + 1) as u16) as u16;
+        hi << 8 | lo
+    }
+
+    pub fn read16zero(&self, addr: u16) -> u16 {
+        let addr = addr & 0xff;
+        let lo: u16 = self.read(addr) as u16;
+        let hi: u16 = self.read((addr + 1) & 0xff) as u16;
+        hi << 8 | lo
+    }
+
+    pub fn read16bug(&self, addr: u16) -> u16 {
+        use std::num::Wrapping;
+        let lo: u16 = self.read(addr) as u16;
+        let hi_addr = (addr & 0xff00) + (Wrapping(addr as u8) + Wrapping(1u8)).0 as u16;
+        // let hi_addr = (addr & 0xff00) + ((addr as u32 + 1) & 0xff) as u16;
+        let hi: u16 = self.read(hi_addr) as u16;
+        hi << 8 | lo
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {

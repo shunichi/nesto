@@ -65,7 +65,7 @@ fn disasm_one_inst(bus: &Bus, addr: u16) -> usize {
     } else {
         println!("{}", prop.inst.name());
     }
-    1 + prop.addr_mode.operand_len()
+    1 + prop.addr_mode.operand_len() as usize
 }
 
 fn disasm(bus: &Bus, addr: u16, size: usize) {
@@ -85,7 +85,7 @@ fn cpu_test() -> Result<()> {
         cart.chr.len()
     );
     let mapper = mapper::Mapper0::new(cart);
-    let bus = bus::Bus::new(Box::new(mapper));
+    let mut bus = bus::Bus::new(Box::new(mapper));
     // let vectors: [u16; 3] = [0xfffa, 0xfffc, 0xfffe];
     // for &addr in vectors.iter() {
     //     let data = mapper.read16(&cart, addr);
@@ -96,6 +96,11 @@ fn cpu_test() -> Result<()> {
     println!("PC={:#x}", cpu.pc);
     println!("-----");
     disasm(&bus, 0xc000, 0x3ffa);
+    println!("-----");
+    cpu.pc = 0xc000;
+    for i in 0..10 {
+        cpu.clock(&mut bus);
+    }
     Ok(())
 }
 

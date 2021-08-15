@@ -1,11 +1,10 @@
 use crate::bus::Bus;
-use crate::cartridge::Cartridge;
 
 macro_rules! enum_str {
   (pub enum $name:ident {
     $($variant:ident),*,
   }) => {
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, PartialEq, Eq)]
     pub enum $name {
       $($variant),*
     }
@@ -85,7 +84,7 @@ enum_str! {
 enum_str! {
   pub enum AddressingMode {
     A,    // Accumlator
-    Abs,  // Abosolute
+    Abs,  // Absolute
     AbsX, // Absolute X-Indexed
     AbsY, // Absolute Y-Indexed
     Imm,  // Immediate
@@ -120,15 +119,19 @@ impl AddressingMode {
     }
 }
 
+type InstFunc = fn(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8;
+
 pub struct InstProp {
     pub inst: Inst,
+    pub func: InstFunc,
     pub addr_mode: AddressingMode,
     pub cycles: u8,
+    pub additional_cycle: u8,
 }
 
 macro_rules! build_inst_table {
-  ($({$i:ident,$a:ident,$c:expr}),*,) => {
-    [$(InstProp{ inst: Inst::$i, addr_mode: AddressingMode::$a, cycles: $c }),*,]
+  ($({$i:ident,$f:ident,$a:ident,$c:expr,$ac:expr}),*,) => {
+    [$(InstProp{ inst: Inst::$i, func: $f, addr_mode: AddressingMode::$a, cycles: $c, additional_cycle: $ac }),*,]
   }
 }
 
@@ -139,278 +142,277 @@ macro_rules! build_inst_table {
 // JMP は固定サイクル
 const INST_PROPS: [InstProp; 256] = build_inst_table! {
   // $00
-  {BRK, Impl, 7},
-  {ORA, XInd, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {ORA, Zpg, 3},
-  {ASL, Zpg, 5},
-  {XXX, Impl, 1},
-  {PHP, Impl, 3},
-  {ORA, Imm, 2},
-  {ASL, A, 2},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {ORA, Abs, 4},
-  {ASL, Abs, 6},
-  {XXX, Impl, 1},
+  {BRK, brk, Impl, 7, 0},
+  {ORA, ora, XInd, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {ORA, ora, Zpg, 3, 0},
+  {ASL, asl, Zpg, 5, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {PHP, php, Impl, 3, 0},
+  {ORA, ora, Imm, 2, 0},
+  {ASL, asl, A, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {ORA, ora, Abs, 4, 0},
+  {ASL, asl, Abs, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $10
-  {BPL, Rel, 2},
-  {ORA, IndY, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {ORA, ZpgX, 4},
-  {ASL, ZpgX, 6},
-  {XXX, Impl, 1},
-  {CLC, Impl, 2},
-  {ORA, AbsY, 4},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {ORA, AbsX, 4},
-  {ASL, AbsX, 7},
-  {XXX, Impl, 1},
-  // 21
-  {JSR, Abs, 6},
-  {AND, XInd, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {BIT, Zpg, 3},
-  {AND, Zpg, 3},
-  {ROL, Zpg, 5},
-  {XXX, Impl, 1},
-  {PLP, Impl, 4},
-  {AND, Imm, 2},
-  {ROL, A, 2},
-  {XXX, Impl, 1},
-  {BIT, Abs, 4},
-  {AND, Abs, 4},
-  {ROL, Abs, 6},
-  {XXX, Impl, 1},
+  {BPL, bpl, Rel, 2, 1},
+  {ORA, ora, IndY, 5, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {ORA, ora, ZpgX, 4, 0},
+  {ASL, asl, ZpgX, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CLC, clc, Impl, 2, 0},
+  {ORA, ora, AbsY, 4, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {ORA, ora, AbsX, 4, 1},
+  {ASL, asl, AbsX, 7, 0},
+  {XXX, xxx, Impl, 1, 0},
+  // $20
+  {JSR, jsr, Abs, 6, 0},
+  {AND, and, XInd, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {BIT, bit, Zpg, 3, 0},
+  {AND, and, Zpg, 3, 0},
+  {ROL, rol, Zpg, 5, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {PLP, plp, Impl, 4, 0},
+  {AND, and, Imm, 2, 0},
+  {ROL, rol, A, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {BIT, bit, Abs, 4, 0},
+  {AND, and, Abs, 4, 0},
+  {ROL, rol, Abs, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $30
-  {BMI, Rel, 2},
-  {AND, IndY, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {AND, ZpgX, 4},
-  {ROL, ZpgX, 6},
-  {XXX, Impl, 1},
-  {SEC, Impl, 2},
-  {AND, AbsY, 4},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {AND, AbsX, 4},
-  {ROL, AbsX, 7},
-  {XXX, Impl, 1},
+  {BMI, bmi, Rel, 2, 1},
+  {AND, and, IndY, 5, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {AND, and, ZpgX, 4, 0},
+  {ROL, rol, ZpgX, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {SEC, sec, Impl, 2, 0},
+  {AND, and, AbsY, 4, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {AND, and, AbsX, 4, 1},
+  {ROL, rol, AbsX, 7, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $40
-  {RTI, Impl, 6},
-  {EOR, XInd, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {EOR, Zpg, 3},
-  {LSR, Zpg, 5},
-  {XXX, Impl, 1},
-  {PHA, Impl, 3},
-  {EOR, Imm, 2},
-  {LSR, A, 2},
-  {XXX, Impl, 1},
-  {JMP, Abs, 3},
-  {EOR, Abs, 4},
-  {LSR, Abs, 6},
-  {XXX, Impl, 1},
+  {RTI, rti, Impl, 6, 0},
+  {EOR, eor, XInd, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {EOR, eor, Zpg, 3, 0},
+  {LSR, lsr, Zpg, 5, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {PHA, pha, Impl, 3, 0},
+  {EOR, eor, Imm, 2, 0},
+  {LSR, lsr, A, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {JMP, jmp, Abs, 3, 0},
+  {EOR, eor, Abs, 4, 0},
+  {LSR, lsr, Abs, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $50
-  {BVC, Rel, 2},
-  {EOR, IndY, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {EOR, ZpgX, 4},
-  {LSR, ZpgX, 6},
-  {XXX, Impl, 1},
-  {CLI, Impl, 2},
-  {EOR, AbsY, 4},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {EOR, AbsX, 4},
-  {LSR, AbsX, 7},
-  {XXX, Impl, 1},
+  {BVC, bvc, Rel, 2, 1},
+  {EOR, eor, IndY, 5, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {EOR, eor, ZpgX, 4, 0},
+  {LSR, lsr, ZpgX, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CLI, cli, Impl, 2, 0},
+  {EOR, eor, AbsY, 4, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {EOR, eor, AbsX, 4, 1},
+  {LSR, lsr, AbsX, 7, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $60
-  {RTS, Impl, 6},
-  {ADC, XInd, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {ADC, Zpg, 3},
-  {ROR, Zpg, 5},
-  {XXX, Impl, 1},
-  {PLA, Impl, 4},
-  {ADC, Imm, 2},
-  {ROR, A, 2},
-  {XXX, Impl, 1},
-  {JMP, Ind, 5},
-  {ADC, Abs, 4},
-  {ROR, Abs, 6},
-  {XXX, Impl, 1},
+  {RTS, rts, Impl, 6, 0},
+  {ADC, adc, XInd, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {ADC, adc, Zpg, 3, 0},
+  {ROR, ror, Zpg, 5, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {PLA, pla, Impl, 4, 0},
+  {ADC, adc, Imm, 2, 0},
+  {ROR, ror, A, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {JMP, jmp, Ind, 5, 0},
+  {ADC, adc, Abs, 4, 0},
+  {ROR, ror, Abs, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $70
-  {BVS, Rel, 2},
-  {ADC, IndY, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {ADC, ZpgX, 4},
-  {ROR, ZpgX, 6},
-  {XXX, Impl, 1},
-  {SEI, Impl, 2},
-  {ADC, AbsY, 4},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {ADC, AbsX, 4},
-  {ROR, AbsX, 7},
-  {XXX, Impl, 1},
+  {BVS, bvs, Rel, 2, 1},
+  {ADC, adc, IndY, 5, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {ADC, adc, ZpgX, 4, 0},
+  {ROR, ror, ZpgX, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {SEI, sei, Impl, 2, 0},
+  {ADC, adc, AbsY, 4, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {ADC, adc, AbsX, 4, 1},
+  {ROR, ror, AbsX, 7, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $80
-  {XXX, Impl, 1},
-  {STA, XInd, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {STY, Zpg, 3},
-  {STA, Zpg, 3},
-  {STX, Zpg, 3},
-  {XXX, Impl, 1},
-  {DEY, Impl, 2},
-  {XXX, Impl, 1},
-  {TXA, Impl, 2},
-  {XXX, Impl, 1},
-  {STY, Abs, 4},
-  {STA, Abs, 4},
-  {STX, Abs, 4},
-  {XXX, Impl, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {STA, sta, XInd, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {STY, sty, Zpg, 3, 0},
+  {STA, sta, Zpg, 3, 0},
+  {STX, stx, Zpg, 3, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {DEY, dey, Impl, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {TXA, txa, Impl, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {STY, sty, Abs, 4, 0},
+  {STA, sta, Abs, 4, 0},
+  {STX, stx, Abs, 4, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $90
-  {BCC, Rel, 2},
-  {STA, IndY, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {STY, ZpgX, 4},
-  {STA, ZpgX, 4},
-  {STX, ZpgY, 4},
-  {XXX, Impl, 1},
-  {TYA, Impl, 2},
-  {STA, AbsY, 5},
-  {TXS, Impl, 2},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {STA, AbsX, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
+  {BCC, bcc, Rel, 2, 1},
+  {STA, sta, IndY, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {STY, sty, ZpgX, 4, 0},
+  {STA, sta, ZpgX, 4, 0},
+  {STX, stx, ZpgY, 4, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {TYA, tya, Impl, 2, 0},
+  {STA, sta, AbsY, 5, 0},
+  {TXS, txs, Impl, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {STA, sta, AbsX, 5, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $A0
-  {LDY, Imm, 2},
-  {LDA, XInd, 6},
-  {LDX, Imm, 2},
-  {XXX, Impl, 1},
-  {LDY, Zpg, 3},
-  {LDA, Zpg, 3},
-  {LDX, Zpg, 3},
-  {XXX, Impl, 1},
-  {TAY, Impl, 2},
-  {LDA, Imm, 2},
-  {TAX, Impl, 2},
-  {XXX, Impl, 1},
-  {LDY, Abs, 4},
-  {LDA, Abs, 4},
-  {LDX, Abs, 4},
-  {XXX, Impl, 1},
+  {LDY, ldy, Imm, 2, 0},
+  {LDA, lda, XInd, 6, 0},
+  {LDX, ldx, Imm, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {LDY, ldy, Zpg, 3, 0},
+  {LDA, lda, Zpg, 3, 0},
+  {LDX, ldx, Zpg, 3, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {TAY, tay, Impl, 2, 0},
+  {LDA, lda, Imm, 2, 0},
+  {TAX, tax, Impl, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {LDY, ldy, Abs, 4, 0},
+  {LDA, lda, Abs, 4, 0},
+  {LDX, ldx, Abs, 4, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $B0
-  {BCS, Rel, 2},
-  {LDA, IndY, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {LDY, ZpgX, 4},
-  {LDA, ZpgX, 4},
-  {LDX, ZpgY, 4},
-  {XXX, Impl, 1},
-  {CLV, Impl, 2},
-  {LDA, AbsY, 4},
-  {TSX, Impl, 2},
-  {XXX, Impl, 1},
-  {LDY, AbsX, 4},
-  {LDA, AbsX, 4},
-  {LDX, AbsY, 4},
-  {XXX, Impl, 1},
+  {BCS, bcs, Rel, 2, 1},
+  {LDA, lda, IndY, 5, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {LDY, ldy, ZpgX, 4, 0},
+  {LDA, lda, ZpgX, 4, 0},
+  {LDX, ldx, ZpgY, 4, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CLV, clv, Impl, 2, 0},
+  {LDA, lda, AbsY, 4, 1},
+  {TSX, tsx, Impl, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {LDY, ldy, AbsX, 4, 1},
+  {LDA, lda, AbsX, 4, 1},
+  {LDX, ldx, AbsY, 4, 1},
+  {XXX, xxx, Impl, 1, 0},
   // $C0
-  {CPY, Imm, 2},
-  {CMP, XInd, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {CPY, Zpg, 3},
-  {CMP, Zpg, 3},
-  {DEC, Zpg, 5},
-  {XXX, Impl, 1},
-  {INY, Impl, 2},
-  {CMP, Imm, 2},
-  {DEX, Impl, 2},
-  {XXX, Impl, 1},
-  {CPY, Abs, 4},
-  {CMP, Abs, 4},
-  {DEC, Abs, 6},
-  {XXX, Impl, 1},
+  {CPY, cpy, Imm, 2, 0},
+  {CMP, cmp, XInd, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CPY, cpy, Zpg, 3, 0},
+  {CMP, cmp, Zpg, 3, 0},
+  {DEC, dec, Zpg, 5, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {INY, iny, Impl, 2, 0},
+  {CMP, cmp, Imm, 2, 0},
+  {DEX, dex, Impl, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CPY, cpy, Abs, 4, 0},
+  {CMP, cmp, Abs, 4, 0},
+  {DEC, dec, Abs, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $D0
-  {BNE, Rel, 2},
-  {CMP, IndY, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {CMP, ZpgX, 4},
-  {DEC, ZpgX, 6},
-  {XXX, Impl, 1},
-  {CLD, Impl, 2},
-  {CMP, AbsY, 4},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {CMP, AbsX, 4},
-  {DEC, AbsX, 7},
-  {XXX, Impl, 1},
+  {BNE, bne, Rel, 2, 1},
+  {CMP, cmp, IndY, 5, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CMP, cmp, ZpgX, 4, 0},
+  {DEC, dec, ZpgX, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CLD, cld, Impl, 2, 0},
+  {CMP, cmp, AbsY, 4, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CMP, cmp, AbsX, 4, 1},
+  {DEC, dec, AbsX, 7, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $E0
-  {CPX, Imm, 2},
-  {SBC, XInd, 6},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {CPX, Zpg, 3},
-  {SBC, Zpg, 3},
-  {INC, Zpg, 5},
-  {XXX, Impl, 1},
-  {INX, Impl, 2},
-  {SBC, Imm, 2},
-  {NOP, Impl, 2},
-  {XXX, Impl, 1},
-  {CPX, Abs, 4},
-  {SBC, Abs, 4},
-  {INC, Abs, 6},
-  {XXX, Impl, 1},
+  {CPX, cpx, Imm, 2, 0},
+  {SBC, sbc, XInd, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CPX, cpx, Zpg, 3, 0},
+  {SBC, sbc, Zpg, 3, 0},
+  {INC, inc, Zpg, 5, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {INX, inx, Impl, 2, 0},
+  {SBC, sbc, Imm, 2, 0},
+  {NOP, nop, Impl, 2, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {CPX, cpx, Abs, 4, 0},
+  {SBC, sbc, Abs, 4, 0},
+  {INC, inc, Abs, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
   // $F0
-  {BEQ, Rel, 2},
-  {SBC, IndY, 5},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {SBC, ZpgX, 4},
-  {INC, ZpgX, 6},
-  {XXX, Impl, 1},
-  {SED, Impl, 2},
-  {SBC, AbsY, 4},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {XXX, Impl, 1},
-  {SBC, AbsX, 4},
-  {INC, AbsX, 7},
-  {XXX, Impl, 1},
-  // 		$100
+  {BEQ, beq, Rel, 2, 1},
+  {SBC, sbc, IndY, 5, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {SBC, sbc, ZpgX, 4, 0},
+  {INC, inc, ZpgX, 6, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {SED, sed, Impl, 2, 0},
+  {SBC, sbc, AbsY, 4, 1},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {XXX, xxx, Impl, 1, 0},
+  {SBC, sbc, AbsX, 4, 1},
+  {INC, inc, AbsX, 7, 0},
+  {XXX, xxx, Impl, 1, 0},
 };
 
 struct Flags {
@@ -485,6 +487,271 @@ pub struct Cpu {
     cycles: u8,
 }
 
+fn xxx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    inst_prop.cycles
+}
+
+fn adc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
+    let prev_value = cpu.a;
+    let new_value = cpu.a as u16 + data as u16 + cpu.carry_value() as u16;
+    cpu.set_flags(prev_value, data as u8, new_value);
+    cpu.a = new_value as u8;
+    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+}
+
+fn and(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
+    let new_value = cpu.a & data;
+    cpu.a = new_value;
+    cpu.set_zn_flags(new_value);
+    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+}
+
+fn asl(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    if inst_prop.addr_mode == AddressingMode::A {
+        cpu.a = cpu.a << 1;
+        cpu.set_zn_flags(cpu.a);
+        inst_prop.cycles
+    } else {
+        let (addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
+        let new_value = bus.read(addr) << 1;
+        bus.write(addr, new_value);
+        cpu.set_zn_flags(new_value);
+        inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    }
+}
+
+fn bcc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn bcs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn beq(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn bit(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn bmi(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn bne(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn bpl(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn brk(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn bvc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn bvs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn clc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn cld(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn cli(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn clv(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn cmp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn cpx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn cpy(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn dec(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn dex(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn dey(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn eor(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn inc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn inx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn iny(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn jmp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    let (addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
+    // pc calculation workaround
+    cpu.pc = addr - 1 - inst_prop.addr_mode.operand_len() as u16;
+    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+}
+
+fn jsr(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn lda(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn ldx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
+    cpu.x = data;
+    cpu.set_zn_flags(data);
+    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+}
+
+fn ldy(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn lsr(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn nop(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn ora(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn pha(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn php(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn pla(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn plp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn rol(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn ror(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn rti(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn rts(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn sbc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn sec(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn sed(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn sei(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn sta(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn stx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn sty(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn tax(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn tay(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn tsx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn txa(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn txs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn tya(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+    panic!("not implemented");
+}
+
+fn crossing_page_cycle(addr0: u16, addr1: u16) -> u8 {
+    if (addr0 & 0xff00) != (addr1 & 0xff00) {
+        1
+    } else {
+        0
+    }
+}
+
+fn wrap_add16(a: u16, b: u16) -> u16 {
+    (std::num::Wrapping(a) + std::num::Wrapping(b)).0
+}
+
 // https://wiki.nesdev.com/w/index.php/CPU_power_up_state
 impl Cpu {
     pub fn new() -> Cpu {
@@ -517,48 +784,94 @@ impl Cpu {
 
     fn set_flags(&mut self, prev_value: u8, data: u8, new_value: u16) {
         let new_u8_value = (new_value & 0xff) as u8;
+        self.set_zn_flags(new_u8_value);
         self.flags.carry = (new_value & 0x100) != 0;
-        self.flags.negative = (new_u8_value & 0x80) != 0;
-        self.flags.zero = new_u8_value == 0;
         self.flags.overflow = (((prev_value ^ new_u8_value) & !(prev_value ^ data)) & 0x80) != 0;
+    }
+
+    fn set_z_flag(&mut self, new_value: u8) {
+        self.flags.zero = new_value == 0;
+    }
+
+    fn set_n_flag(&mut self, new_value: u8) {
+        self.flags.negative = (new_value & 0x80) != 0;
+    }
+
+    fn set_zn_flags(&mut self, new_value: u8) {
+        self.set_z_flag(new_value);
+        self.set_n_flag(new_value);
     }
 
     fn exec_inst(&mut self, bus: &mut Bus) -> u8 {
         let inst = bus.read(self.pc);
-        self.pc = ((self.pc as u32 + 1) & 0xffff) as u16;
         let inst_prop = &INST_PROPS[inst as usize];
-        let (data, mut additional_cycle) = self.fetch_data(inst_prop, bus);
 
-        match inst_prop.inst {
-            Inst::ADC => {
-                let prev_value = self.a;
-                let new_value = self.a as u16 + data as u16 + self.carry_value() as u16;
-                self.set_flags(prev_value, data as u8, new_value);
-                self.a = (new_value & 0xff) as u8;
-            }
-            Inst::JMP => {
-                self.pc = data;
-            }
-            _ => {}
-        }
-        inst_prop.cycles + additional_cycle
+        println!("{:04X} {}", self.pc, inst_prop.inst.name());
+
+        let cycles = (inst_prop.func)(self, inst_prop, bus);
+        self.pc = (self.pc as usize + 1 + inst_prop.addr_mode.operand_len()) as u16;
+        cycles
     }
 
-    fn fetch_data(&mut self, inst_prop: &InstProp, bus: &mut Bus) -> (u16, u8) {
+    fn fetch_addr(&mut self, inst_prop: &InstProp, bus: &mut Bus) -> (u16, u8) {
         match inst_prop.addr_mode {
+            AddressingMode::A => (0, 0),
+            AddressingMode::Abs => (bus.read16(self.pc + 1), 0),
+            AddressingMode::AbsX => {
+                let abs_addr = bus.read16(self.pc + 1);
+                let addr = wrap_add16(abs_addr, self.x as u16);
+                (addr, crossing_page_cycle(abs_addr, addr))
+            }
+            AddressingMode::AbsY => {
+                let abs_addr = bus.read16(self.pc + 1);
+                let addr = wrap_add16(abs_addr, self.y as u16);
+                (addr, crossing_page_cycle(abs_addr, addr))
+            }
+            AddressingMode::Imm => (self.pc + 1, 0),
             AddressingMode::Impl => (0, 0),
-            AddressingMode::Imm => {
-                let data = bus.read(self.pc);
-                self.pc += 1;
-                (data as u16, 0)
+            AddressingMode::Ind => {
+                let addr = bus.read16(self.pc + 1);
+                (bus.read16bug(addr), 0)
             }
-            AddressingMode::Abs => {
-                let data = bus.read16(self.pc);
-                self.pc += 2;
-                (data, 0)
+            AddressingMode::XInd => {
+                let zaddr = bus.read(self.pc + 1) as u16;
+                let addr = bus.read16zero(zaddr + self.x as u16);
+                (addr, 0)
             }
-            _ => (0, 0),
+            AddressingMode::IndY => {
+                let zaddr = bus.read(self.pc + 1) as u16;
+                let abs_addr = bus.read16zero(zaddr);
+                let addr = wrap_add16(abs_addr, self.y as u16);
+                (addr, crossing_page_cycle(abs_addr, addr))
+            }
+            AddressingMode::Rel => {
+                let offset = bus.read(self.pc + 1) as u16;
+                let next_addr = wrap_add16(self.pc, 2);
+                if (offset & 0x80) == 0 {
+                    (wrap_add16(next_addr, offset), 0)
+                } else {
+                    (wrap_add16(next_addr, 0xff00 | offset), 0)
+                }
+            }
+            AddressingMode::Zpg => {
+                let zaddr = bus.read(self.pc + 1) as u16;
+                (zaddr, 0)
+            }
+            AddressingMode::ZpgX => {
+                let zaddr = bus.read(self.pc + 1) as u16;
+                ((zaddr + self.x as u16) & 0xff, 0)
+            }
+            AddressingMode::ZpgY => {
+                let zaddr = bus.read(self.pc + 1) as u16;
+                ((zaddr + self.y as u16) & 0xff, 0)
+            }
         }
+    }
+
+    fn fetch_data(&mut self, inst_prop: &InstProp, bus: &mut Bus) -> (u8, u8) {
+        let (addr, additonal_cycle) = self.fetch_addr(inst_prop, bus);
+        let data = bus.read(addr);
+        (data, additonal_cycle)
     }
 
     pub fn reset(&mut self, bus: &Bus) {
