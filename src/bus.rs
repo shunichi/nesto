@@ -27,6 +27,9 @@ impl Bus {
             self.ram[(addr & 0x7ff) as usize]
         } else if addr >= 0x8000 {
             self.mapper.read(addr)
+        } else if 0x4000 <= addr && addr <= 0x4017 {
+            // TODO: Implement APU
+            0xff
         } else {
             0
         }
