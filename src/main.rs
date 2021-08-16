@@ -11,18 +11,16 @@ mod debug_font;
 mod mapper;
 mod utils;
 
-use cpu::disasm::disasm;
-
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn cpu_test() -> Result<()> {
     let cart = cartridge::read(std::path::Path::new("./nestest.nes"))?;
-    println!(
-        "cartridge: mapper={} prg_len={} chr_len={}",
-        cart.mapper,
-        cart.prg.len(),
-        cart.chr.len()
-    );
+    // println!(
+    //     "cartridge: mapper={} prg_len={} chr_len={}",
+    //     cart.mapper,
+    //     cart.prg.len(),
+    //     cart.chr.len()
+    // );
     let mapper = mapper::Mapper0::new(cart);
     let mut bus = bus::Bus::new(Box::new(mapper));
     // let vectors: [u16; 3] = [0xfffa, 0xfffc, 0xfffe];
@@ -37,7 +35,7 @@ fn cpu_test() -> Result<()> {
     // disasm(&bus, 0xc000, 0x3ffa);
     // println!("-----");
     cpu.pc = 0xc000;
-    for i in 0..1000 {
+    for i in 0..26554 {
         cpu.clock(&mut bus);
     }
     Ok(())

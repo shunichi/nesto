@@ -1,6 +1,7 @@
 pub mod disasm;
 mod instructions;
 use self::disasm::disasm_one_inst_and_status;
+pub use self::instructions::InstProp;
 use self::instructions::*;
 use crate::bus::Bus;
 use crate::utils::{crossing_page_cycle, offset_addr, wrap_add16, wrap_sub8};
@@ -41,32 +42,42 @@ impl Flags {
     }
 
     pub fn value(&self) -> u8 {
-        let mut v: u8 = 0;
+        let mut value: u8 = 0;
         if self.carry {
-            v |= FLG_C;
+            value |= FLG_C;
         }
         if self.zero {
-            v |= FLG_Z;
+            value |= FLG_Z;
         }
         if self.intrrupt {
-            v |= FLG_I;
+            value |= FLG_I;
         }
         if self.decimal {
-            v |= FLG_D;
+            value |= FLG_D;
         }
         if self.brk {
-            v |= FLG_B;
+            value |= FLG_B;
         }
         if self.unused {
-            v |= FLG_U;
+            value |= FLG_U;
         }
         if self.overflow {
-            v |= FLG_V;
+            value |= FLG_V;
         }
         if self.negative {
-            v |= FLG_N;
+            value |= FLG_N;
         }
-        v
+        value
+    }
+
+    pub fn set(&mut self, value: u8) {
+        self.carry = (value & FLG_C) != 0;
+        self.zero = (value & FLG_Z) != 0;
+        self.intrrupt = (value & FLG_I) != 0;
+        self.decimal = (value & FLG_D) != 0;
+        self.brk = (value & FLG_B) != 0;
+        self.overflow = (value & FLG_V) != 0;
+        self.negative = (value & FLG_N) != 0;
     }
 }
 // http://wiki.nesdev.com/w/index.php/CPU_registers
@@ -101,9 +112,8 @@ impl Cpu {
             disasm_one_inst_and_status(bus, self.pc, self);
             self.cycles = self.exec_inst(bus);
             self.elapsed_cycles += self.cycles as u64;
-        } else {
-            self.cycles -= 1;
         }
+        self.cycles -= 1;
     }
 
     pub fn carry_value(&self) -> u8 {
@@ -118,8 +128,9 @@ impl Cpu {
         self.set_zn_flags(wrap_sub8(v0, v1));
         self.flags.carry = v0 >= v1;
     }
+
     fn set_flags(&mut self, prev_value: u8, data: u8, new_value: u16) {
-        let new_u8_value = (new_value & 0xff) as u8;
+        let new_u8_value = new_value as u8;
         self.set_zn_flags(new_u8_value);
         self.flags.carry = (new_value & 0x100) != 0;
         self.flags.overflow = (((prev_value ^ new_u8_value) & !(prev_value ^ data)) & 0x80) != 0;
