@@ -9,73 +9,12 @@ mod cartridge;
 mod cpu;
 mod debug_font;
 mod mapper;
+mod utils;
 
-use bus::Bus;
-use cpu::AddressingMode;
+use cpu::disasm::disasm;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn operand_hex_string(bus: &Bus, addr: u16, addr_mode: AddressingMode) -> String {
-    match addr_mode.operand_len() {
-        0 => "".to_owned(),
-        1 => format!("{:02X}", bus.read(addr)),
-        2 => format!(
-            "{:02x} {:02X}",
-            bus.read(addr),
-            bus.read((addr as u32 + 1) as u16)
-        ),
-        _ => "".to_owned(),
-    }
-}
-fn operand_string(bus: &Bus, addr: u16, addr_mode: AddressingMode) -> Option<String> {
-    match addr_mode {
-        AddressingMode::A => Some("A".to_owned()),
-        AddressingMode::Abs => Some(format!("${:04X}", bus.read16(addr))),
-        AddressingMode::AbsX => Some(format!("${:04X},x", bus.read16(addr))),
-        AddressingMode::AbsY => Some(format!("${:04X},y", bus.read16(addr))),
-        AddressingMode::Imm => Some(format!("#${:02X}", bus.read(addr))),
-        AddressingMode::Impl => None,
-        AddressingMode::Ind => Some(format!("(${:04X})", bus.read16(addr))),
-        AddressingMode::XInd => Some(format!("(${:02X},x)", bus.read(addr))),
-        AddressingMode::IndY => Some(format!("(${:02X}),y", bus.read(addr))),
-        AddressingMode::Rel => Some(format!("${:02X}", bus.read(addr))),
-        AddressingMode::Zpg => Some(format!("${:02X}", bus.read(addr))),
-        AddressingMode::ZpgX => Some(format!("${:02X},x", bus.read(addr))),
-        AddressingMode::ZpgY => Some(format!("${:02X},y", bus.read(addr))),
-        _ => Some(addr_mode.name().to_owned()),
-    }
-}
-
-fn disasm_one_inst(bus: &Bus, addr: u16) -> usize {
-    let byte = bus.read(addr as u16);
-    let prop = cpu::Cpu::inst_prop(byte);
-    let operand_addr = (addr + 1) as u16;
-    print!(
-        "{:04X}  {:02X} {:5}  ",
-        addr,
-        byte,
-        operand_hex_string(bus, operand_addr, prop.addr_mode)
-    );
-    if let Some(operand) = operand_string(bus, operand_addr, prop.addr_mode) {
-        println!(
-            "{inst} {operand}",
-            inst = prop.inst.name(),
-            operand = operand
-        );
-    } else {
-        println!("{}", prop.inst.name());
-    }
-    1 + prop.addr_mode.operand_len() as usize
-}
-
-fn disasm(bus: &Bus, addr: u16, size: usize) {
-    let mut addr: u32 = addr as u32;
-    let end: u32 = (addr as u32) + (size as u32);
-    while addr < 0x10000 && addr < end {
-        let size = disasm_one_inst(bus, addr as u16);
-        addr += size as u32;
-    }
-}
 fn cpu_test() -> Result<()> {
     let cart = cartridge::read(std::path::Path::new("./nestest.nes"))?;
     println!(
@@ -93,10 +32,10 @@ fn cpu_test() -> Result<()> {
     // }
     let mut cpu = cpu::Cpu::new();
     cpu.reset(&bus);
-    println!("PC={:#x}", cpu.pc);
-    println!("-----");
-    disasm(&bus, 0xc000, 0x3ffa);
-    println!("-----");
+    // println!("PC={:#x}", cpu.pc);
+    // println!("-----");
+    // disasm(&bus, 0xc000, 0x3ffa);
+    // println!("-----");
     cpu.pc = 0xc000;
     for i in 0..1000 {
         cpu.clock(&mut bus);
