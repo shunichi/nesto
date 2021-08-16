@@ -13,3 +13,11 @@ pub fn offset_addr(addr: u16, offset: u8) -> u16 {
         wrap_add16(addr, 0xff00 | offset as u16)
     }
 }
+
+pub fn crossing_page_cycle(addr0: u16, addr1: u16) -> u8 {
+    if (addr0 & 0xff00) != (addr1 & 0xff00) {
+        1
+    } else {
+        0
+    }
+}
