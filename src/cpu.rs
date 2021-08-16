@@ -152,9 +152,14 @@ impl Cpu {
         let inst = bus.read(self.pc);
         let inst_prop = &INST_PROPS[inst as usize];
 
-        // println!("{:04X} {}", self.pc, inst_prop.inst.name());
-
-        (inst_prop.func)(self, inst_prop, bus)
+        let (next_pc_addr, additional_cycles) = (inst_prop.func)(self, inst_prop, bus);
+        self.pc = next_pc_addr.unwrap_or_else(|| self.next_pc(inst_prop));
+        // if let Some(addr) = next_pc_addr {
+        //     self.pc = addr;
+        // } else {
+        //     self.step_pc_to_next(inst_prop);
+        // }
+        inst_prop.cycles + additional_cycles
     }
 
     fn next_pc(&self, inst_prop: &InstProp) -> u16 {

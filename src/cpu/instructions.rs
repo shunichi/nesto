@@ -121,7 +121,7 @@ impl AddressingMode {
     }
 }
 
-type InstFunc = fn(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8;
+type InstFunc = fn(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8);
 
 pub struct InstProp {
     pub inst: Inst,
@@ -417,376 +417,305 @@ pub const INST_PROPS: [InstProp; 256] = build_inst_table! {
   {XXX, xxx, Impl, 1, 0},
 };
 
-pub fn xxx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn xxx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+    (None, 0)
 }
 
-pub fn adc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn adc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
     let prev_value = cpu.a;
     let new_value = cpu.a as u16 + data as u16 + cpu.carry_value() as u16;
     cpu.set_flags(prev_value, data as u8, new_value);
     cpu.a = new_value as u8;
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    (None, additional_cycle)
 }
 
-pub fn and(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn and(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
     let new_value = cpu.a & data;
     cpu.a = new_value;
     cpu.set_zn_flags(new_value);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    (None, additional_cycle)
 }
 
-pub fn asl(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn asl(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     if inst_prop.addr_mode == AddressingMode::A {
         cpu.a = cpu.a << 1;
         cpu.set_zn_flags(cpu.a);
-        cpu.step_pc_to_next(inst_prop);
-        inst_prop.cycles
     } else {
         let (addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
         let new_value = bus.read(addr) << 1;
         bus.write(addr, new_value);
         cpu.set_zn_flags(new_value);
-        cpu.step_pc_to_next(inst_prop);
-        inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
     }
+    (None, 0)
 }
 
-pub fn branch(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus, do_branch: bool) -> u8 {
+pub fn branch(
+    cpu: &mut Cpu,
+    inst_prop: &InstProp,
+    bus: &mut Bus,
+    do_branch: bool,
+) -> (Option<u16>, u8) {
     let mut additional_cycles: u8 = 0;
     if do_branch {
         additional_cycles = 1;
         let (branch_addr, _) = cpu.fetch_addr(inst_prop, bus);
         additional_cycles += crossing_page_cycle(branch_addr, cpu.next_pc(inst_prop));
-        cpu.pc = branch_addr;
+        (Some(branch_addr), additional_cycles)
     } else {
-        cpu.step_pc_to_next(inst_prop);
+        (None, 0)
     }
-    inst_prop.cycles + additional_cycles
 }
-pub fn bcc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+
+pub fn bcc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     branch(cpu, inst_prop, bus, !cpu.flags.carry)
 }
 
-pub fn bcs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn bcs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     branch(cpu, inst_prop, bus, cpu.flags.carry)
 }
 
-pub fn beq(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let mut additional_cycles: u8 = 0;
-    if cpu.flags.zero {
-        additional_cycles = 1;
-        let (branch_addr, _) = cpu.fetch_addr(inst_prop, bus);
-        additional_cycles += crossing_page_cycle(branch_addr, cpu.next_pc(inst_prop));
-        cpu.pc = branch_addr;
-    } else {
-        cpu.step_pc_to_next(inst_prop);
-    }
-    inst_prop.cycles + additional_cycles
+pub fn beq(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    branch(cpu, inst_prop, bus, cpu.flags.zero)
 }
 
-pub fn bit(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
+pub fn bit(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    let (data, _additional_cycle) = cpu.fetch_data(inst_prop, bus);
     let tested = cpu.a & data;
     cpu.set_z_flag(data);
     cpu.set_n_flag(tested);
     cpu.flags.overflow = tested & (1 << 6) != 0;
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    (None, 0)
 }
 
-pub fn bmi(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let mut additional_cycles: u8 = 0;
-    if cpu.flags.negative {
-        additional_cycles = 1;
-        let (branch_addr, _) = cpu.fetch_addr(inst_prop, bus);
-        additional_cycles += crossing_page_cycle(branch_addr, cpu.next_pc(inst_prop));
-        cpu.pc = branch_addr;
-    } else {
-        cpu.step_pc_to_next(inst_prop);
-    }
-    inst_prop.cycles + additional_cycles
+pub fn bmi(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    branch(cpu, inst_prop, bus, cpu.flags.negative)
 }
 
-pub fn bne(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let mut additional_cycles: u8 = 0;
-    if !cpu.flags.zero {
-        additional_cycles = 1;
-        let (branch_addr, _) = cpu.fetch_addr(inst_prop, bus);
-        additional_cycles += crossing_page_cycle(branch_addr, cpu.next_pc(inst_prop));
-        cpu.pc = branch_addr;
-    } else {
-        cpu.step_pc_to_next(inst_prop);
-    }
-    inst_prop.cycles + additional_cycles
+pub fn bne(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    branch(cpu, inst_prop, bus, !cpu.flags.zero)
 }
 
-pub fn bpl(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let mut additional_cycles: u8 = 0;
-    if !cpu.flags.negative {
-        additional_cycles = 1;
-        let (branch_addr, _) = cpu.fetch_addr(inst_prop, bus);
-        additional_cycles += crossing_page_cycle(branch_addr, cpu.next_pc(inst_prop));
-        cpu.pc = branch_addr;
-    } else {
-        cpu.step_pc_to_next(inst_prop);
-    }
-    inst_prop.cycles + additional_cycles
+pub fn bpl(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    branch(cpu, inst_prop, bus, !cpu.flags.negative)
 }
 
-pub fn brk(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn brk(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn bvc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let mut additional_cycles: u8 = 0;
-    if !cpu.flags.overflow {
-        additional_cycles = 1;
-        let (branch_addr, _) = cpu.fetch_addr(inst_prop, bus);
-        additional_cycles += crossing_page_cycle(branch_addr, cpu.next_pc(inst_prop));
-        cpu.pc = branch_addr;
-    } else {
-        cpu.step_pc_to_next(inst_prop);
-    }
-    inst_prop.cycles + additional_cycles
+pub fn bvc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    branch(cpu, inst_prop, bus, !cpu.flags.overflow)
 }
 
-pub fn bvs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let mut additional_cycles: u8 = 0;
-    if cpu.flags.overflow {
-        additional_cycles = 1;
-        let (branch_addr, _) = cpu.fetch_addr(inst_prop, bus);
-        additional_cycles += crossing_page_cycle(branch_addr, cpu.next_pc(inst_prop));
-        cpu.pc = branch_addr;
-    } else {
-        cpu.step_pc_to_next(inst_prop);
-    }
-    inst_prop.cycles + additional_cycles
+pub fn bvs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    branch(cpu, inst_prop, bus, cpu.flags.overflow)
 }
 
-pub fn clc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn clc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     cpu.flags.carry = false;
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+    (None, 0)
 }
 
-pub fn cld(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn cld(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    cpu.flags.decimal = false;
+    (None, 0)
+}
+
+pub fn cli(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn cli(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn clv(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn clv(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    panic!("not implemented");
-}
-
-pub fn cmp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn cmp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
     cpu.compare(cpu.a, data);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (inst_prop.additional_cycle & additional_cycle)
+    (None, additional_cycle)
 }
 
-pub fn cpx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn cpx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn cpy(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn cpy(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn dec(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn dec(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn dex(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn dex(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn dey(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn dey(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn eor(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn eor(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn inc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn inc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn inx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn inx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn iny(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn iny(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn jmp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let (addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
-    cpu.pc = addr;
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+pub fn jmp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    let (branch_addr, _additional_cycle) = cpu.fetch_addr(inst_prop, bus);
+    (Some(branch_addr), 0)
 }
 
-pub fn jsr(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let (branch_addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
+pub fn jsr(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    let (branch_addr, _additional_cycle) = cpu.fetch_addr(inst_prop, bus);
     let addr = cpu.pc + 2;
     cpu.push(bus, (addr >> 8) as u8);
     cpu.push(bus, (addr & 0xff) as u8);
-    cpu.pc = branch_addr;
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    (Some(branch_addr), 0)
 }
 
-pub fn lda(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn lda(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
     cpu.a = data;
     cpu.set_zn_flags(data);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    (None, additional_cycle)
 }
 
-pub fn ldx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn ldx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
     cpu.x = data;
     cpu.set_zn_flags(data);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    (None, additional_cycle)
 }
 
-pub fn ldy(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn ldy(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     let (data, additional_cycle) = cpu.fetch_data(inst_prop, bus);
     cpu.y = data;
     cpu.set_zn_flags(data);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (additional_cycle & inst_prop.additional_cycle)
+    (None, additional_cycle)
 }
 
-pub fn lsr(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn lsr(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn nop(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+pub fn nop(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    (None, 0)
 }
 
-pub fn ora(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn ora(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn pha(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn pha(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn php(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn php(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     cpu.push(bus, cpu.flags.value() | FLG_B | FLG_U);
     cpu.flags.brk = false;
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+    (None, 0)
 }
 
-pub fn pla(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn pla(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     cpu.a = cpu.pop(bus);
     cpu.set_zn_flags(cpu.a);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+    (None, 0)
 }
 
-pub fn plp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn plp(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn rol(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn rol(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn ror(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn ror(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn rti(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn rti(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn rts(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn rts(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     let lo = cpu.pop(bus);
     let hi = cpu.pop(bus);
     let ret_addr = (hi as u16) << 8 | lo as u16;
-    cpu.pc = ret_addr + 1;
-    inst_prop.cycles
+    (Some(ret_addr + 1), 0)
 }
 
-pub fn sbc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn sbc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn sec(cpu: &mut Cpu, inst_prop: &InstProp, _bus: &mut Bus) -> u8 {
+pub fn sec(cpu: &mut Cpu, inst_prop: &InstProp, _bus: &mut Bus) -> (Option<u16>, u8) {
     cpu.flags.carry = true;
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+    (None, 0)
 }
 
-pub fn sed(cpu: &mut Cpu, inst_prop: &InstProp, _bus: &mut Bus) -> u8 {
+pub fn sed(cpu: &mut Cpu, inst_prop: &InstProp, _bus: &mut Bus) -> (Option<u16>, u8) {
     cpu.flags.decimal = true;
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+    (None, 0)
 }
 
-pub fn sei(cpu: &mut Cpu, inst_prop: &InstProp, _bus: &mut Bus) -> u8 {
+pub fn sei(cpu: &mut Cpu, inst_prop: &InstProp, _bus: &mut Bus) -> (Option<u16>, u8) {
     cpu.flags.intrrupt = true;
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles
+    (None, 0)
 }
 
-pub fn sta(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let (addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
+pub fn sta(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    let (addr, _additional_cycle) = cpu.fetch_addr(inst_prop, bus);
     bus.write(addr, cpu.a);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (inst_prop.additional_cycle & additional_cycle)
+    (None, 0)
 }
 
-pub fn stx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let (addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
+pub fn stx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    let (addr, _additional_cycle) = cpu.fetch_addr(inst_prop, bus);
     bus.write(addr, cpu.x);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (inst_prop.additional_cycle & additional_cycle)
+    (None, 0)
 }
 
-pub fn sty(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
-    let (addr, additional_cycle) = cpu.fetch_addr(inst_prop, bus);
+pub fn sty(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
+    let (addr, _additional_cycle) = cpu.fetch_addr(inst_prop, bus);
     bus.write(addr, cpu.y);
-    cpu.step_pc_to_next(inst_prop);
-    inst_prop.cycles + (inst_prop.additional_cycle & additional_cycle)
+    (None, 0)
 }
 
-pub fn tax(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn tax(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn tay(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn tay(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn tsx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn tsx(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn txa(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn txa(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn txs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn txs(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
 
-pub fn tya(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> u8 {
+pub fn tya(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
     panic!("not implemented");
 }
