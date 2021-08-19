@@ -62,4 +62,9 @@ impl Bus {
             self.ram[(addr & 0x7ff) as usize] = value;
         }
     }
+
+    pub fn write16(&mut self, addr: u16, value: u16) {
+        self.write(addr + 0, (value & 0xff) as u8);
+        self.write(addr + 1, (value >> 8) as u8);
+    }
 }

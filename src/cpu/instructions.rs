@@ -1,6 +1,6 @@
 use super::{Cpu, FLG_B, FLG_U};
 use crate::bus::Bus;
-use crate::utils::{crossing_page_cycle, wrap_add16, wrap_add8, wrap_sub8};
+use crate::utils::{crossing_page_cycle, wrap_add8, wrap_sub8};
 
 // https://www.masswerk.at/6502/6502_instruction_set.html
 
@@ -524,7 +524,12 @@ pub fn bpl(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, 
 }
 
 pub fn brk(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
-    panic!("not implemented");
+    cpu.push16(bus, cpu.pc + 2);
+    cpu.push(bus, cpu.flags.value() | FLG_B | FLG_U);
+    cpu.flags.brk = false;
+    cpu.flags.intrrupt = true;
+    cpu.pc = bus.read16(0xfffe);
+    (None, 0)
 }
 
 pub fn bvc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, u8) {
@@ -764,12 +769,12 @@ pub fn sbc(cpu: &mut Cpu, inst_prop: &InstProp, bus: &mut Bus) -> (Option<u16>, 
     let prev_value = cpu.a;
     let new_value = cpu.a as u16 + inverted as u16 + cpu.carry_value() as u16;
 
-    let new_u8_value = new_value as u8;
-    cpu.set_zn_flags(new_u8_value);
-    cpu.flags.carry = (new_value & 0x100) != 0;
-    cpu.flags.overflow = (((prev_value ^ new_u8_value) & (new_u8_value ^ inverted)) & 0x80) != 0;
+    // let new_u8_value = new_value as u8;
+    // cpu.set_zn_flags(new_u8_value);
+    // cpu.flags.carry = (new_value & 0x100) != 0;
+    // cpu.flags.overflow = (((prev_value ^ new_u8_value) & (new_u8_value ^ inverted)) & 0x80) != 0;
 
-    // cpu.set_flags(prev_value, data as u8, new_value);
+    cpu.set_flags(prev_value, inverted, new_value);
 
     cpu.a = new_value as u8;
     (None, additional_cycle)

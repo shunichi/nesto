@@ -154,6 +154,11 @@ impl Cpu {
         self.s -= 1;
     }
 
+    fn push16(&mut self, bus: &mut Bus, value: u16) {
+        bus.write16(0x100 + self.s as u16 - 1, value);
+        self.s -= 2;
+    }
+
     fn pop(&mut self, bus: &mut Bus) -> u8 {
         self.s += 1;
         bus.read(0x100 + self.s as u16)
