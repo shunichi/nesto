@@ -3,15 +3,15 @@ use crate::mapper::Mapper;
 use std::boxed::Box;
 use std::vec::Vec;
 
-pub struct Bus {
-    pub mapper: Box<dyn Mapper>,
+pub struct Bus<'a> {
+    pub mapper: Box<dyn Mapper + 'a>,
     ram: Vec<u8>,
 }
 
-impl Bus {
+impl<'a> Bus<'a> {
     const RAM_SIZE: usize = 2 * 1024;
 
-    pub fn new(mapper: Box<dyn Mapper>) -> Self {
+    pub fn new(mapper: Box<dyn Mapper + 'a>) -> Self {
         Bus {
             mapper,
             ram: vec![0; Self::RAM_SIZE],

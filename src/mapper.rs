@@ -8,16 +8,18 @@ pub trait Mapper {
     fn cartridge(&self) -> &Cartridge;
 }
 
-pub struct Mapper0 {
-    pub cartridge: Cartridge,
+pub struct Mapper0<'a> {
+    pub cartridge: &'a Cartridge,
 }
 
-impl Mapper0 {
-    pub fn new(cartridge: Cartridge) -> Self {
-        Mapper0 { cartridge }
+impl<'a> Mapper0<'a> {
+    pub fn new(cartridge: &'a Cartridge) -> Self {
+        Mapper0 {
+            cartridge: cartridge,
+        }
     }
 }
-impl Mapper for Mapper0 {
+impl<'a> Mapper for Mapper0<'a> {
     fn read(&self, address: u16) -> u8 {
         if address >= 0x8000 {
             let mut index: usize = address as usize - 0x8000;

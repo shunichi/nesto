@@ -1,6 +1,7 @@
 use crate::bus::Bus;
 use crate::cpu::{AddressingMode, Cpu, InstProp};
 use crate::utils::{offset_addr, wrap_add16};
+use std::io::Write;
 
 fn operand_hex_string(bus: &Bus, addr: u16, addr_mode: AddressingMode) -> String {
     match addr_mode.operand_len() {
@@ -180,33 +181,37 @@ pub fn disasm_one_inst_and_status(bus: &Bus, addr: u16, cpu: &Cpu) -> usize {
     1 + inst_prop.addr_mode.operand_len() as usize
 }
 
-pub fn disasm_one_inst(bus: &Bus, addr: u16) -> usize {
+pub fn disasm_one_inst<W: Write>(w: &mut W, bus: &Bus, addr: u16) -> usize {
     let byte = bus.read(addr as u16);
     let prop = Cpu::inst_prop(byte);
     let operand_addr = (addr + 1) as u16;
-    print!(
+    write!(
+        w,
         "{:04X}  {:02X} {:5}  ",
         addr,
         byte,
         operand_hex_string(bus, operand_addr, prop.addr_mode)
-    );
+    )
+    .unwrap();
     if let Some(operand) = operand_string(bus, operand_addr, prop.addr_mode) {
-        println!(
+        writeln!(
+            w,
             "{inst} {operand}",
             inst = prop.inst.name(),
             operand = operand
-        );
+        )
+        .unwrap();
     } else {
-        println!("{}", prop.inst.name());
+        writeln!(w, "{}", prop.inst.name()).unwrap();
     }
     1 + prop.addr_mode.operand_len() as usize
 }
 
-pub fn disasm(bus: &Bus, addr: u16, size: usize) {
+pub fn disasm<W: Write>(w: &mut W, bus: &Bus, addr: u16, size: usize) {
     let mut addr: u32 = addr as u32;
     let end: u32 = (addr as u32) + (size as u32);
     while addr < 0x10000 && addr < end {
-        let size = disasm_one_inst(bus, addr as u16);
+        let size = disasm_one_inst(w, bus, addr as u16);
         addr += size as u32;
     }
 }
